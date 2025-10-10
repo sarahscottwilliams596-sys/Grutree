@@ -16,7 +16,8 @@ app.use(cors());
 // --- Single endpoint for all forms ---
 app.post('/api/submit', async (req, res) => {
   const { formType } = req.body;
-
+ console.log('✅ Received form submission:');
+  console.log({ formType });
   if (!formType) {
     return res.status(400).json({ error: 'Missing formType' });
   }

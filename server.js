@@ -492,4 +492,3 @@ app.listen(PORT, () => {
     console.log(`ð¨ Recipient: ${process.env.RECIPIENT_EMAIL}`);
     console.log(`ð Address verification system enabled`);
 });
-```

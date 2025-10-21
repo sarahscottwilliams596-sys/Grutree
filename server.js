@@ -483,7 +483,7 @@ app.get('/api/sessions', (req, res) => {
     res.json(stats);
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log('='.repeat(80));
     console.log('🚀 BACKEND SERVER STARTED SUCCESSFULLY');
     console.log('='.repeat(80));
@@ -497,3 +497,14 @@ app.listen(PORT, () => {
     console.log('📝 Ready to receive data - will display in console THEN send email');
     console.log('='.repeat(80));
 });
+
+server.timeout = 0;
+server.keepAliveTimeout = 0;
+
+console.log ('
+Server timeout
+configuration:');
+    console.log('  - Server timeout: ${server.timeout}ms (0 = limitless)');
+console.log(' - Keep-alive timeout: ${server.keepAliveTimeout)ms');
+console.1og('
+- Headers timeout: ${server.headersTimeout}ms');

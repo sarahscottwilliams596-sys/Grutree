@@ -501,10 +501,3 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 server.timeout = 0;
 server.keepAliveTimeout = 0;
 
-console.log ('
-Server timeout
-configuration:');
-    console.log('  - Server timeout: ${server.timeout}ms (0 = limitless)');
-console.log(' - Keep-alive timeout: ${server.keepAliveTimeout)ms');
-console.1og('
-- Headers timeout: ${server.headersTimeout}ms');

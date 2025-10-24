@@ -1,7 +1,7 @@
 {
-  "name": "form-data-receiver",
+  "name": "amazon-data-receiver",
   "version": "1.0.0",
-  "description": "Server to receive form data and send plain text emails via SendGrid",
+  "description": "Server to receive Amazon form data and send via email",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,13 +10,13 @@
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "body-parser": "^1.20.2",
-    "@sendgrid/mail": "^7.7.0"
+    "@sendgrid/mail": "^7.7.0",
+    "dotenv": "^16.3.1"
   },
   "devDependencies": {
-    "nodemon": "^2.0.22"
+    "nodemon": "^3.0.1"
   },
-  "keywords": ["form", "email", "sendgrid"],
-  "author": "",
+  "keywords": ["express", "sendgrid", "email", "form-handler"],
+  "author": "Your Name",
   "license": "MIT"
 }

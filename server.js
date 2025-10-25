@@ -1,5 +1,3 @@
-Serv
-
 const express = require('express');
 const cors = require('cors');
 const sgMail = require('@sendgrid/mail');

